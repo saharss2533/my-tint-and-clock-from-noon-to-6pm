@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>AR Day/Night Tint Overlay</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; width: 100%; overflow: hidden; }
+    body { background: transparent; position: relative; }
+
+    .tint-overlay {
+      position: fixed; top: 0; left: 0;
+      width: 100vw; height: 100vh;
+      pointer-events: none;
+      mix-blend-mode: multiply;
+      opacity: 0.3;
+      z-index: 1000;
+    }
+
+/*
+    .debug-info {
+      position: fixed; top: 10px; left: 10px;
+      color: white; font-family: monospace; font-size: 12px;
+      background: rgba(0,0,0,0.3);
+      padding: 10px; border-radius: 5px;
+      z-index: 1001;
+    }
+*/
+
+    /* Clock canvas (top-left, a bit lower & smaller) */
+    #clock {
+      position: fixed; top: 20px; left: 0;
+      width: 120px; height: 120px;     /* visual size */
+      background: transparent;
+      pointer-events: none;
+      z-index: 1002;
+    }
+  </style>
+</head>
+<body>
+  <div class="tint-overlay" id="tintOverlay"></div>
+  <div class="debug-info" id="debugInfo"></div>
+  <!-- Added clock canvas -->
+  <canvas id="clock" width="120" height="120"></canvas>
+
+  <script>
+    // ---------------- Your existing tint/time logic (kept) ----------------
+    let sunriseColor, middayColor, sunsetColor, nightColor;
+    let totalLength = 24 * 60000; // 4 minutes = 24h simulated
+
+    let currentPhase = "";
+
+    // Phase times (HH:MM)
+    let sunriseTimeStr = "06:30";
+    let middayTimeStr  = "12:00";
+    let lateNoonTimeStr = "15:00";
+    let sunsetTimeStr  = "19:00";
+    let earlyNightTimeStr = "21:00";
+    let nightTimeStr   = "01:30";
+
+    // Converted to minutes
+    let sunriseM, middayM, lateNoonM, sunsetM, earlyNightM, nightM;
+
+    // Easing factors (not used by ease function signature here, but kept)
+    let easeFactorSunriseMidday = 3;
+    let easeFactorMiddayLateNoon = 3;
+    let easeFactorLateNoonSunset  = 3;
+    let easeFactorSunsetEarlyNight = 2;
+    let easeFactorEarlyNightNight = 2;
+    let easeFactorNightSunrise = 3;
+
+    nightColor   = {r: 30, g: 50, b:120};
+    sunriseColor = {r: 255, g: 210, b:150};
+    middayColor  = {r: 255, g: 255, b:255};
+    lateNoonColor = {r: 255, g: 240, b:220}; // warm yellow for late noon
+    sunsetColor  = {r: 195, g: 120, b:80};
+    earlyNightColor = {r: 40, g: 55, b:135}; // Deep purple for early night
+
+    function timeToMinutes(timeStr) {
+      let [h, m] = timeStr.split(":").map(Number);
+      return h * 60 + m;
+    }
+
+    sunriseM   = timeToMinutes(sunriseTimeStr);
+    middayM    = timeToMinutes(middayTimeStr);
+    lateNoonM  = timeToMinutes(lateNoonTimeStr);
+    sunsetM    = timeToMinutes(sunsetTimeStr);
+    earlyNightM= timeToMinutes(earlyNightTimeStr);
+    nightM     = timeToMinutes(nightTimeStr);
+
+    function easeInOutExpo(t) {
+      return (t < 0.5)
+        ? 0.5 * Math.pow(2, 20 * t - 10)
+        : 1 - 0.5 * Math.pow(2, -20 * t + 10);
+    }
+    function map(value, start1, stop1, start2, stop2) {
+      return start2 + (stop2 - start2) * ((value - start1) / (stop1 - start1));
+    }
+    function lerpColor(colorA, colorB, t) {
+      return {
+        r: Math.round(colorA.r + (colorB.r - colorA.r) * t),
+        g: Math.round(colorA.g + (colorB.g - colorA.g) * t),
+        b: Math.round(colorA.b + (colorB.b - colorA.b) * t)
+      };
+    }
+    function logPhaseChange(phase) {
+      if (currentPhase !== phase) {
+        currentPhase = phase;
+        console.log(`Phase changed to: ${phase}`);
+      }
+    }
+
+    // Tint logic with Late Noon + Early Night (unchanged behavior)
+    function getTintForTime(minutes) {
+      let phase;
+
+      if (minutes >= sunriseM && minutes < middayM) {
+        phase = "Sunrise → Midday";
+        let t = map(minutes, sunriseM, middayM, 0, 1);
+        t = easeInOutExpo(t, easeFactorSunriseMidday);
+        logPhaseChange(phase);
+        return lerpColor(sunriseColor, middayColor, t);
+
+      } else if (minutes >= middayM && minutes < lateNoonM) {
+        phase = "Midday → Late Noon";
+        let t = map(minutes, middayM, lateNoonM, 0, 1);
+        t = easeInOutExpo(t, easeFactorMiddayLateNoon);
+        logPhaseChange(phase);
+        return lerpColor(middayColor, lateNoonColor, t);
+
+      } else if (minutes >= lateNoonM && minutes < sunsetM) {
+        phase = "Late Noon → Sunset";
+        let t = map(minutes, lateNoonM, sunsetM, 0, 1);
+        t = easeInOutExpo(t, easeFactorLateNoonSunset);
+        logPhaseChange(phase);
+        return lerpColor(lateNoonColor, sunsetColor, t);
+
+      } else if (minutes >= sunsetM && minutes < earlyNightM) {
+        phase = "Sunset → Early Night";
+        let t = map(minutes, sunsetM, earlyNightM, 0, 1);
+        t = easeInOutExpo(t, easeFactorSunsetEarlyNight);
+        logPhaseChange(phase);
+        return lerpColor(sunsetColor, earlyNightColor, t);
+
+      } else if (
+        (earlyNightM < nightM && minutes >= earlyNightM && minutes < nightM) ||
+        (earlyNightM > nightM && (minutes >= earlyNightM || minutes < nightM))
+      ) {
+        // Early Night → Night (handles wrap past midnight)
+        phase = "Early Night → Night";
+        let start = earlyNightM;
+        let end = nightM > earlyNightM ? nightM : nightM + 1440;
+        let m = (minutes < nightM && earlyNightM > nightM) ? minutes + 1440 : minutes;
+        let t = map(m, start, end, 0, 1);
+        t = easeInOutExpo(t, easeFactorEarlyNightNight);
+        logPhaseChange(phase);
+        return lerpColor(earlyNightColor, nightColor, t);
+
+      } else {
+        // Night → Sunrise (wraps)
+        phase = "Night → Sunrise";
+        let t = map(minutes, nightM, sunriseM, 0, 1);
+        t = easeInOutExpo(t, easeFactorNightSunrise);
+        logPhaseChange(phase);
+        return lerpColor(nightColor, sunriseColor, t);
+      }
+    }
+
+    function minutesToTime(minutes) {
+      let h = Math.floor(minutes / 60) % 24;
+      let m = minutes % 60;
+      return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+    }
+
+    const startTime = Date.now(); // when your program starts
+    const timeofDawnChorus=5, timeofMidday=12, timeofDuskChorus=18, timeofMidnight=0;
+
+    let timeSegmentoftheDay = timeofMidday;
+    let nextTimeSegmentoftheDay = timeofDuskChorus;
+
+    function millis() { return Date.now() - startTime; }
+
+    const nextTime = (((millis() % totalLength) / totalLength) * 1440) + (60 * nextTimeSegmentoftheDay);
+
+    function animate() {
+      // Simulated day
+      let currentTime = millis();
+      let cyclePosition = (currentTime % totalLength) / totalLength;
+      let simulatedMinutes = cyclePosition * 1440;
+      simulatedMinutes = (simulatedMinutes + (60 * timeSegmentoftheDay)) % 1440;
+
+      let tintColor;
+      if (simulatedMinutes <= nextTime) {
+        tintColor = getTintForTime(simulatedMinutes);
+      }
+
+      // Apply tint
+      document.getElementById('tintOverlay').style.backgroundColor =
+        `rgb(${tintColor.r}, ${tintColor.g}, ${tintColor.b})`;
+
+      requestAnimationFrame(animate);
+    }
+    animate();
+
+    // ---------------- Clock: 12 → 6 in 6 minutes, then stop ----------------
+    const clockCanvas = document.getElementById('clock');
+    const clockCtx = clockCanvas.getContext('2d');
+
+    const CLOCK_DURATION = 6 * 60 * 1000; // 6 minutes
+    const CLOCK_START_ANGLE = -Math.PI / 2;          // 12 o'clock
+    const CLOCK_END_ANGLE   = CLOCK_START_ANGLE + Math.PI; // +6 hours → 6 o'clock
+
+    let clockStartTs = null;
+
+    function fitForDPR(canvas, ctx) {
+      const dpr = window.devicePixelRatio || 1;
+      const cssW = canvas.clientWidth, cssH = canvas.clientHeight;
+      if (canvas.width !== cssW * dpr || canvas.height !== cssH * dpr) {
+        canvas.width = cssW * dpr; canvas.height = cssH * dpr;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      }
+    }
+
+    function renderClock(angle) {
+      fitForDPR(clockCanvas, clockCtx);
+      const w = clockCanvas.clientWidth, h = clockCanvas.clientHeight;
+      const cx = w / 2, cy = h / 2;
+      const r = Math.min(w, h) * 0.45;
+
+      clockCtx.clearRect(0, 0, w, h);
+
+      // White face
+      clockCtx.beginPath();
+      clockCtx.arc(cx, cy, r, 0, Math.PI * 2);
+      clockCtx.fillStyle = '#fff';
+      clockCtx.fill();
+
+      // Black hand
+      clockCtx.beginPath();
+      clockCtx.moveTo(cx, cy);
+      clockCtx.lineTo(cx + r * 0.9 * Math.cos(angle), cy + r * 0.9 * Math.sin(angle));
+      clockCtx.lineWidth = 3;
+      clockCtx.lineCap = 'round';
+      clockCtx.strokeStyle = '#000';
+      clockCtx.stroke();
+
+      // Black center pin
+      clockCtx.beginPath();
+      clockCtx.arc(cx, cy, 3, 0, Math.PI * 2);
+      clockCtx.fillStyle = '#000';
+      clockCtx.fill();
+    }
+
+    function animateClock(ts) {
+      if (!clockStartTs) clockStartTs = ts;
+      const elapsed = ts - clockStartTs;
+      const t = Math.min(elapsed / CLOCK_DURATION, 1); // 0..1
+      const angle = CLOCK_START_ANGLE + t * (CLOCK_END_ANGLE - CLOCK_START_ANGLE);
+      renderClock(angle);
+      if (t < 1) requestAnimationFrame(animateClock); // stops at 6 o'clock
+    }
+    requestAnimationFrame(animateClock);
+
+    // Touch passthrough
+    document.addEventListener('touchstart', function() {
+      location.href = 'hobject://do?when_done=hide';
+    });
+
+    // Keep the clock crisp on resize
+    window.addEventListener('resize', () => fitForDPR(clockCanvas, clockCtx));
+  </script>
+</body>
+</html>
